@@ -11,20 +11,27 @@ import json
 import re
 import time
 import traceback
+
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from email.utils import formataddr
 ####################################################
 ##########!!!!!!单用户信息!!!#######################
 ###################################################
-USERNAME = '你的学号'
-PASSWORD = '你的密码'
+USERNAME = '222018322220001'
+PASSWORD = 'z296919'
 # 到点延迟多少秒签到，默认为0s
 DELAY = 0
 ####################################################
 ###########!!!!!消息推送!!!!!#######################
 ###################################################
+# 接收消息邮箱，格式为'xxxx@xxx.com'，不需要消息推送的话可以不填
+MAIL_MSG = '13662311701@163.com'
 # Qmsg酱推送KEy,QQ消息推送,不需要消息推送的话可以不填
 QMSG_KEY = ''
 # 日志推送级别
-PUSH_LEVEL = 1
+PUSH_LEVEL = 2
 ######################################################
 ############!!!!!百度OCR识别!!!!######################
 #####################################################
@@ -295,6 +302,32 @@ class Util:  # 统一的类
 
     @staticmethod
     def SendMessage(title: str, content: str,):
+        #######################################################
+        #################!!!!发送邮箱消息!!!!###################
+        #######################################################
+        if MAIL_MSG == '':
+            Util.log("未配置接收邮箱，消息不会发送")
+        else:
+            mail_host = "smtp.qq.com"         # 设置服务器
+            sender = "jeekate@qq.com"           # 发件人邮箱账号
+            mail_pass = "lrydcmxriceybbjg"    # 发件人邮箱密码 
+            receivers = MAIL_MSG  # 接收邮件，可设置为你的QQ邮箱或者其他邮箱
+
+            msg = MIMEMultipart()
+            msg['From'] = formataddr(["今日校园",sender])
+            msg['To'] = formataddr(["定",receivers])
+            msg['Subject'] = title
+
+            msg.attach(MIMEText(content, 'plain', 'utf-8'))
+            try:
+                smtpObj=smtplib.SMTP_SSL(mail_host, 465)  # 发件人邮箱中的SMTP服务器，端口是25
+                smtpObj.login(sender, mail_pass)  # 括号中对应的是发件人邮箱账号、邮箱密码
+                smtpObj.sendmail(sender,[receivers,],msg.as_string())  # 括号中对应的是发件人邮箱账号、收件人邮箱账号、发送邮件
+                smtpObj.quit()  # 关闭连接
+                Util.log("邮件发送成功")
+            except Exception:  # 如果 try 中的语句没有执行，则会执行下面的 ret=False
+                Util.log("邮件发送失败")
+            
         if QMSG_KEY == '':
             Util.log("未配置QMSG酱，消息不会推送")
             return False
@@ -307,7 +340,8 @@ class Util:  # 统一的类
                 url='https://qmsg.zendee.cn/send/{}'.format(QMSG_KEY), data=data)
         except:
             Util.log('发送失败')
-
+        
+            
     @staticmethod
     def GenDeviceID(username):
         # 生成设备id，根据用户账号生成,保证同一学号每次执行时deviceID不变，可以避免辅导员看到用新设备签到
