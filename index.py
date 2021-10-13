@@ -28,8 +28,8 @@ DELAY = 0
 ###################################################
 #CLOUDPUSHMAIL 推送打卡日志的邮箱可填可不填
 MAIL_MSG = ''
-# Qmsg酱推送KEy,QQ消息推送,不需要消息推送的话可以不填
-QMSG_KEY = ''
+# PUSHPLUS推送Key,微信消息推送,不需要消息推送的话可以不填
+PUSHPLUS_token = ''
 # 日志推送级别
 PUSH_LEVEL = 1
 ######################################################
@@ -43,10 +43,10 @@ SECRET_KEY = '你的SECRET_KEY'
 #################!!!!DES加密密钥!!!!###################
 #######################################################
 DESKEY = 'b3L26XNL'
-APPVERSION = '9.0.7'
+APPVERSION = '9.0.10'
 #######################################################
 ############！！！！获取任务的接口！！！！###############
-######################################################
+#######################################################
 # 由于寒假不需要查寝，没有整理查寝的项目
 API = {
     'Sign': {
@@ -80,7 +80,7 @@ if 'CLOUDPASSWORD' in locals().keys():
 if 'CLOUDDELAY' in locals().keys():
     DELAY = locals().get('CLOUDDELAY')
 if 'CLOUDPUSHTOKEN' in locals().keys():
-    QMSG_KEY = locals().get('CLOUDPUSHTOKEN')
+    PUSHPLUS_token = locals().get('CLOUDPUSHTOKEN')
 if 'CLOUDAPP_ID' in locals().keys():
     APP_ID = locals().get('CLOUDAPP_ID')
 if 'CLOUDAPI_KEY' in locals().keys():
@@ -142,7 +142,7 @@ class Util:  # 统一的类
             return ''
 
     @staticmethod
-    def Login(user, School_Server_API):
+    def Login(user, School_Server_API,useproxy=False):
         loginurl = School_Server_API['login-url']
         # 解析login-url中的协议和host
         info = re.findall('(.*?)://(.*?)/', loginurl)[0]
@@ -161,16 +161,36 @@ class Util:  # 统一的类
         }
         # session存放最终cookies
         session = requests.Session()
-        try:
-            res = session.get(url=loginurl, headers=headers)
-        except:
-            Util.log("学校登录服务器可能宕机了...")
-            return None
-        #获取重定向url中的lt
-        lt = re.findall('_2lBepC=(.*)&*', res.url)
-        if len(lt) == 0:
-            Util.log("获取lt失败")
-            return None
+        if useproxy:
+            while True:
+                proxies=Util.getproxy()
+                Util.log("使用代理{}".format(proxies['http']))
+                session.proxies=proxies
+                try:
+                    res = session.get(url=loginurl, headers=headers,timeout=2)
+                except:
+                    Util.log("代理异常，切换代理")
+                    session = requests.Session()
+                    continue
+                lt = re.findall('_2lBepC=(.*)&*', res.url)
+                # ip被ban
+                if len(lt) == 0:
+                    Util.log("代理被ban，切换新代理")
+                    session = requests.Session()
+                    continue
+                else:
+                    break
+        else:
+            try:
+                res = session.get(url=loginurl, headers=headers,timeout=2)
+            except:
+                Util.log("学校登录服务器可能宕机了...")
+                return None
+            #获取重定向url中的lt
+            lt = re.findall('_2lBepC=(.*)&*', res.url)
+            if len(lt) == 0:
+                Util.log("获取lt失败")
+                return None
         lt = lt[0]
         PostUrl = '{}://{}/iap/doLogin'.format(protocol, host)
         Params = {}
@@ -251,7 +271,7 @@ class Util:  # 统一的类
         }
         headers = {
             'tenantId': '1019318364515869',  # SWU
-            'User-Agent': 'Mozilla/5.0 (Linux; Android 7.1.1; MI 6 Build/NMF26X; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/61.0.3163.98 Mobile Safari/537.36 okhttp/3.12.4',
+            'User-Agent': 'Mozilla/5.0 (Linux; Android 7.1.1; MI 6 Build/NMF26X; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/61.0.3163.98 Mobile Safari/537.36 okhttp/3.12.4 cpdaily/9.0.10 wisedu/9.0.10',
             'CpdailyStandAlone': '0',
             'Cpdaily-Extension': Util.DESEncrypt(json.dumps(extension)),
             'extension': '1',
@@ -269,7 +289,7 @@ class Util:  # 统一的类
             'Host': School_Server_API['host'],
             'Accept': 'application/json, text/plain, */*',
             'X-Requested-With': 'XMLHttpRequest',
-            'User-Agent': 'Mozilla/5.0 (Linux; Android 7.1.1; MI 6 Build/NMF26X; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/61.0.3163.98 Mobile Safari/537.36  cpdaily/9.0.7 wisedu/9.0.7',
+            'User-Agent': 'Mozilla/5.0 (Linux; Android 7.1.1; MI 6 Build/NMF26X; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/61.0.3163.98 Mobile Safari/537.36  cpdaily/9.0.10 wisedu/9.0.10',
             'Content-Type': 'application/json',
             'Accept-Encoding': 'gzip,deflate',
             'Accept-Language': 'zh-CN,en-US;q=0.8',
@@ -302,9 +322,8 @@ class Util:  # 统一的类
             # 返回距离开始的时间
             return begin-now
     # 通过pushplus推送消息
-
     @staticmethod
-    def SendMessage(title: str, content: str,):
+    def SendMessage(title:str,content:str,channel='wechat',ctype='html'):
         #######################################################
         #################!!!!发送邮箱消息!!!!###################
         #######################################################
@@ -330,21 +349,23 @@ class Util:  # 统一的类
                 Util.log("邮件发送成功")
             except Exception:  # 如果 try 中的语句没有执行，则会执行下面的 ret=False
                 Util.log("邮件发送失败")
-            
-        if QMSG_KEY == '':
-            Util.log("未配置QMSG酱，消息不会推送")
+                
+        if PUSHPLUS_token == '':
+            Util.log("未配置pushplus的token，消息不会推送")
             return False
-        data = {
-            'token': QMSG_KEY,
-            'msg': title+"\n"+content,
+        data={
+            'token':PUSHPLUS_token,
+            'title':title,
+            'content':content,
+            'channel':channel,
+            'template':ctype
         }
         try:
-            res = requests.post(
-                url='https://qmsg.zendee.cn/send/{}'.format(QMSG_KEY), data=data)
+            res=requests.post(url='http://www.pushplus.plus/send',data=data)
+            Util.log(res.json()['msg'])
         except:
-            Util.log('发送失败')
-        
-            
+            Util.log('消息推送失败')
+
     @staticmethod
     def GenDeviceID(username):
         # 生成设备id，根据用户账号生成,保证同一学号每次执行时deviceID不变，可以避免辅导员看到用新设备签到
@@ -358,6 +379,37 @@ class Util:  # 统一的类
                 deviceId = deviceId+chr(num)
         deviceId = deviceId+'XiaomiMI6'
         return deviceId
+    
+    @staticmethod
+    def checkip(ip: str):
+        res = requests.get(
+            'http://ip.taobao.com/outGetIpInfo?ip={}&accessKey=alibaba-inc'.format(ip.split(':')[0])).json()
+        # 国内ip
+        if res['data']['country'] == '中国':
+            # 检测代理可用性
+            try:
+                requests.get(url='http://baidu.com',proxies={'http':'http://{}'.format(ip)},timeout=2)
+            except:
+                return False
+            return True
+        return False
+    
+    @staticmethod
+    def getproxy():
+        r = True
+        Util.log("获取代理...")
+        while r:
+            res = requests.get("http://demo.spiderpy.cn/get/").json()
+            if not res['https']:
+                continue
+            r = not Util.checkip(res['proxy'])
+            if r:
+                time.sleep(1)
+        res={
+            'http': 'http://{}'.format(res['proxy']),
+            'https':'http://{}'.format(res['proxy'])
+        }
+        return res
 # 任务模板，签到和查寝均继承模板
 
 
@@ -657,7 +709,7 @@ class Attendance(TaskModel):
 
 
 def Do(School_Server_API, user):
-    session = Util.Login(user, School_Server_API)
+    session = Util.Login(user, School_Server_API,useproxy=True)
     if session:
         Util.log('登陆成功')
         userBaseInfo = {
