@@ -11,6 +11,8 @@ import json
 import re
 import time
 import traceback
+import pyaes
+import hashlib
 
 import smtplib
 from email.mime.text import MIMEText
@@ -43,7 +45,8 @@ SECRET_KEY = '你的SECRET_KEY'
 #################!!!!DES加密密钥!!!!###################
 #######################################################
 DESKEY = 'b3L26XNL'
-APPVERSION = '9.0.10'
+AESKEY = 'ytUQ7l2ZZu8mLvJZ'
+APPVERSION = '9.0.12'
 #######################################################
 ############！！！！获取任务的接口！！！！###############
 #######################################################
@@ -254,6 +257,14 @@ class Util:  # 统一的类
         k = des(Key, CBC, iv, pad=None, padmode=PAD_PKCS5)
         encrypt_str = k.encrypt(s)
         return base64.b64encode(encrypt_str).decode()
+    
+    @staticmethod
+    def AESEncrypt(s,key,iv=b'\x01\x02\x03\x04\x05\x06\x07\x08\t\x01\x02\x03\x04\x05\x06\x07'):
+        Encrypter=pyaes.Encrypter(pyaes.AESModeOfOperationCBC(key.encode('utf-8'),iv))
+        Encrypted=Encrypter.feed(s)
+        Encrypted+=Encrypter.feed()
+        return base64.b64encode(Encrypted).decode()
+
 
     @staticmethod
     # 生成带有extension的headers
@@ -271,10 +282,11 @@ class Util:  # 统一的类
         }
         headers = {
             'tenantId': '1019318364515869',  # SWU
-            'User-Agent': 'Mozilla/5.0 (Linux; Android 7.1.1; MI 6 Build/NMF26X; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/61.0.3163.98 Mobile Safari/537.36 okhttp/3.12.4 cpdaily/9.0.10 wisedu/9.0.10',
+            'User-Agent': 'Mozilla/5.0 (Linux; Android 7.1.1; MI 6 Build/NMF26X; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/61.0.3163.98 Mobile Safari/537.36 okhttp/3.12.4 cpdaily/9.0.12 wisedu/9.0.12',
             'CpdailyStandAlone': '0',
             'Cpdaily-Extension': Util.DESEncrypt(json.dumps(extension)),
             'extension': '1',
+            'sign':'1',
             'Content-Type': 'application/json; charset=utf-8',
             'Host': School_Server_API['host'],
             'Connection': 'Keep-Alive',
@@ -289,7 +301,7 @@ class Util:  # 统一的类
             'Host': School_Server_API['host'],
             'Accept': 'application/json, text/plain, */*',
             'X-Requested-With': 'XMLHttpRequest',
-            'User-Agent': 'Mozilla/5.0 (Linux; Android 7.1.1; MI 6 Build/NMF26X; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/61.0.3163.98 Mobile Safari/537.36  cpdaily/9.0.10 wisedu/9.0.10',
+            'User-Agent': 'Mozilla/5.0 (Linux; Android 7.1.1; MI 6 Build/NMF26X; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/61.0.3163.98 Mobile Safari/537.36  cpdaily/9.0.12 wisedu/9.0.12',
             'Content-Type': 'application/json',
             'Accept-Encoding': 'gzip,deflate',
             'Accept-Language': 'zh-CN,en-US;q=0.8',
@@ -590,6 +602,29 @@ class TaskModel:
                                  message+" ,请手动签到，等待更新")
             return False
 
+    def GenBodyString(self,form):
+        return Util.AESEncrypt(json.dumps(form),AESKEY)
+
+    def SignForm(self,realform):
+        tosign={
+            "appVersion":APPVERSION,
+            "bodyString":realform['bodyString'],
+            "deviceId":realform["deviceId"],
+            "lat":realform["lat"],
+            "lon":realform["lon"],
+            "model":realform["model"],
+            "systemName":realform["systemName"],
+            "systemVersion":realform["systemVersion"],
+            "userId":realform["userId"],   
+        }
+        signStr=""
+        for i in tosign:
+            if signStr:
+                signStr+="&"
+            signStr+="{}={}".format(i,tosign[i])
+        signStr+="&{}".format(AESKEY)
+        return hashlib.md5(signStr.encode()).hexdigest()
+
     def GenConfig(self, signedTasksInfo):
         pass
 
@@ -636,6 +671,7 @@ class Sign(TaskModel):
             form['signPhotoUrl'] = ''
         # 判断是否需要提交附加信息
         if task['isNeedExtra'] == 1:
+            form['isNeedExtra'] = 1
             extraFields = task['extraField']
             # 根据设定内容填充表格
             defaults = config['extra']
@@ -664,8 +700,20 @@ class Sign(TaskModel):
         form['position'] = config['address']
         form['uaIsCpadaily'] = True
         form['signVersion'] = '1.0.0'
-        return form
-
+        realform={}
+        realform['appVersion'] = APPVERSION
+        realform['systemName'] = "android"
+        realform['bodyString'] = self.GenBodyString(form)
+        realform['lon'] = form['longitude']
+        realform['calVersion'] = 'firstv'
+        realform['model'] = 'MI 6'
+        realform['systemVersion'] = '7.1.1'
+        realform['deviceId'] = self.userBaseInfo['deviceId']
+        realform['userId'] = self.userBaseInfo['username']
+        realform['version'] = "first_v2"
+        realform['lat'] = form['latitude']
+        realform['sign'] = self.SignForm(realform)
+        return realform
 
 
 # 查寝
@@ -704,8 +752,20 @@ class Attendance(TaskModel):
             form['signPhotoUrl'] = ''
         form['position'] = config['address']
         form['uaIsCpadaily'] = True
-        return form
-
+        realform={}
+        realform['appVersion'] = APPVERSION
+        realform['systemName'] = "android"
+        realform['bodyString'] = self.GenBodyString(form)
+        realform['lon'] = form['longitude']
+        realform['calVersion'] = 'firstv'
+        realform['model'] = 'MI 6'
+        realform['systemVersion'] = '7.1.1'
+        realform['deviceId'] = self.userBaseInfo['deviceId']
+        realform['userId'] = self.userBaseInfo['username']
+        realform['version'] = "first_v2"
+        realform['lat'] = form['latitude']
+        realform['sign'] = self.SignForm(realform)
+        return realform
 
 
 def Do(School_Server_API, user):
